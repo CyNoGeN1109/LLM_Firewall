@@ -25,9 +25,9 @@ const tempValue = $("#temperatureValue");
 let conversation = [];
 let ctrl = null;
 let chatModel = "qwen3:1.7b";
-let fwModel = "gemma4:e2b";
+let fwModel = "qwen3:1.7b";
 
-const WELCOME = "Welcome to CynoShield. Toggle the firewall OFF to see prompt injection attacks succeed against Qwen — then turn it ON and watch Gemma4 block them in real-time.";
+const WELCOME = "Welcome to CynoShield. Toggle the firewall OFF to send prompts directly to Qwen, then turn it ON and try prompt-injection text to see the firewall block it.";
 
 init();
 
@@ -175,9 +175,14 @@ async function send(text) {
     }
 
     ast.node.classList.remove("typing");
-    if (full.trim()) conversation.push({ role: "assistant", content: full });
-    else ast.content.textContent = "No response.";
-    if (blocked) conversation.pop();
+    if (blocked) {
+      // Remove the blocked user prompt so it cannot poison later turns.
+      conversation.pop();
+    } else if (full.trim()) {
+      conversation.push({ role: "assistant", content: full });
+    } else {
+      ast.content.textContent = "No response.";
+    }
   } catch (err) {
     if (err.name !== "AbortError") {
       ast.content.textContent = err.message || "Something went wrong.";
