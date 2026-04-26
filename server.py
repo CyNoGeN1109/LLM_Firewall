@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-WEB_ROOT = ROOT / "web"
+WEB_ROOT = ROOT
 ENV_PATH = ROOT / ".env"
 
 
@@ -24,14 +24,14 @@ def load_env_file(path):
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        os.environ[key] = value
 
 
 load_env_file(ENV_PATH)
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma4:e2b")
-FIREWALL_MODEL = os.environ.get("FIREWALL_MODEL", "gemma4:e2b")
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "qwen3:1.7b")
+FIREWALL_MODEL = os.environ.get("FIREWALL_MODEL", "qwen3:1.7b")
 
 
 @dataclass
