@@ -1,151 +1,76 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="AI Prompt Injection Firewall — Protect Qwen LLM with Gemma4 security layer. Real-time attack detection and blocking." />
-    <title>CynoShield — AI Prompt Firewall</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-
-    <!-- Background animated grid -->
-    <div class="bg-grid" aria-hidden="true"></div>
-    <div class="bg-glow" aria-hidden="true"></div>
-
-    <main id="app" class="app">
-
-      <!-- ─── Sidebar ─── -->
-      <aside class="sidebar" aria-label="Navigation">
-        <div class="sidebar-brand">
-          <div class="shield-icon" id="sidebarShield">
-            <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 2.18l7 3.12v4.7c0 4.83-3.4 9.36-7 10.5-3.6-1.14-7-5.67-7-10.5V6.3l7-3.12z"/><path class="shield-check" d="M10 15.5l-3.5-3.5 1.41-1.41L10 12.67l5.59-5.59L17 8.5l-7 7z"/></svg>
-          </div>
-          <div class="brand-text">
-            <strong>CynoShield</strong>
-            <span>AI Prompt Firewall</span>
-          </div>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>cynoshield</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">cynoshield</span>
+      <span class="brand-tag">PROMPT FIREWALL</span>
+    </div>
+    <div class="toggle-wrap">
+      <span class="fw-label">firewall</span>
+      <label class="toggle-switch">
+        <input id="firewallToggle" type="checkbox" checked/>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
+      <span class="fw-dot on" id="fwDot"></span>
+    </div>
+  </header>
+  <div class="pipeline">
+    <span class="pnode" id="pn-in">input</span>
+    <span class="parr" id="pa-1">→</span>
+    <span class="pnode" id="pn-fw">firewall</span>
+    <span class="parr" id="pa-2">→</span>
+    <span class="pnode" id="pn-llm">llm</span>
+    <span class="parr" id="pa-3">→</span>
+    <span class="pnode" id="pn-out">output</span>
+    <span class="pspacer"></span>
+    <span class="pverdict hidden" id="pipeVerdict"></span>
+  </div>
+  <div class="messages" id="messages"></div>
+  <div class="sys-row hidden" id="sysRow">
+    <textarea id="systemPrompt" rows="2" placeholder="system prompt…">You are a helpful assistant. Answer clearly and keep responses practical.</textarea>
+  </div>
+  <div class="composer-wrap">
+    <form id="chatForm" class="composer">
+      <textarea id="promptInput" rows="1" placeholder="message…" autocomplete="off"></textarea>
+      <div class="composer-btns">
+        <button id="settingsToggle" class="cbtn" type="button">sys</button>
+        <button id="newChat" class="cbtn" type="button">new</button>
+        <button id="exportChat" class="cbtn" type="button">export</button>
+        <button id="stopButton" class="cbtn stop hidden" type="button">stop</button>
+        <button id="sendButton" class="cbtn send" type="submit">send</button>
+      </div>
+    </form>
+  </div>
+  <div class="flow-logs">
+    <div class="flow-logs-header">
+      <span class="flow-logs-title">FLOW LOG</span>
+      <div class="flow-logs-right">
+        <button class="clrbtn" id="clearLog" type="button">clear</button>
+        <div class="runtime-indicator">
+          <span class="rdot" id="runtimeStatus"></span>
+          <span class="rlbl" id="runtimeLabel">connecting…</span>
         </div>
-
-        <button id="newChat" class="sidebar-btn new-chat" type="button">
-          <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          New Session
-        </button>
-
-        <nav class="history-list" aria-label="Sessions">
-          <button class="history-item active" type="button">
-            <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-            Current session
-          </button>
-        </nav>
-
-        <div class="sidebar-footer">
-          <button id="exportChat" class="sidebar-btn" type="button">
-            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-            Export Chat
-          </button>
-          <div class="runtime-status">
-            <span id="runtimeStatus" class="status-dot pending"></span>
-            <span id="runtimeLabel">Connecting to Ollama…</span>
-          </div>
-        </div>
-      </aside>
-
-      <!-- ─── Main Panel ─── -->
-      <section class="main-panel" aria-label="Chat">
-
-        <!-- Topbar -->
-        <header class="topbar">
-          <div class="topbar-info">
-            <h1 id="modelName">CynoShield</h1>
-            <span id="targetLabel" class="subtitle">Initializing…</span>
-          </div>
-
-          <div class="topbar-actions">
-            <!-- Firewall Toggle -->
-            <div class="firewall-toggle-wrap" id="firewallWrap">
-              <div class="firewall-indicator" id="firewallIndicator">
-                <div class="indicator-pulse"></div>
-                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-              </div>
-              <label class="toggle-label">
-                <span id="firewallLabel">Firewall ON</span>
-                <div class="toggle-track">
-                  <input id="firewallToggle" type="checkbox" checked />
-                  <div class="toggle-thumb"></div>
-                </div>
-              </label>
-            </div>
-
-            <button id="settingsToggle" class="icon-btn" type="button" aria-label="Settings" title="Settings">
-              <svg viewBox="0 0 24 24"><path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8 8 0 0 0-2.6-1.5L14 2h-4l-.4 3a8 8 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5A9 9 0 0 0 4.5 12c0 .5 0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 2.6 1.5l.4 3h4l.4-3a8 8 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
-            </button>
-          </div>
-        </header>
-
-        <!-- Settings Drawer -->
-        <aside id="settingsPanel" class="settings-drawer hidden" aria-label="Settings">
-          <label class="setting-field">
-            <span>Target Model</span>
-            <select id="modelSelect"></select>
-          </label>
-          <label class="setting-field">
-            <span>Temperature <strong id="temperatureValue">0.7</strong></span>
-            <input id="temperature" type="range" min="0" max="1.4" step="0.1" value="0.7" />
-          </label>
-          <label class="setting-field">
-            <span>System Prompt</span>
-            <textarea id="systemPrompt" rows="3">You are a helpful assistant. Answer clearly and keep responses practical.</textarea>
-          </label>
-          <div id="decisionPanel" class="decision-card">
-            <div class="decision-header">
-              <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-              <strong>Firewall Decision</strong>
-            </div>
-            <p>Awaiting first prompt…</p>
-          </div>
-        </aside>
-
-        <!-- Chat Messages -->
-        <div id="messages" class="messages" aria-live="polite">
-          <!-- Welcome message injected by JS -->
-        </div>
-
-        <!-- Composer -->
-        <form id="chatForm" class="composer">
-          <div class="composer-inner">
-            <textarea id="promptInput" rows="1" placeholder="Type a message… try a prompt injection with firewall OFF, then ON" autocomplete="off"></textarea>
-            <div class="composer-buttons">
-              <button id="stopButton" class="composer-btn stop hidden" type="button" aria-label="Stop" title="Stop generation">
-                <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-              </button>
-              <button id="sendButton" class="composer-btn send" type="submit" aria-label="Send" title="Send message">
-                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-              </button>
-            </div>
-          </div>
-          <p class="composer-hint">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-            The firewall inspects every prompt before it reaches the target model
-          </p>
-        </form>
-
-      </section>
-    </main>
-
-    <template id="messageTemplate">
-      <article class="msg">
-        <div class="msg-avatar"></div>
-        <div class="msg-body">
-          <div class="msg-meta"></div>
-          <div class="msg-content"></div>
-        </div>
-      </article>
-    </template>
-
-    <script src="/app.js"></script>
-  </body>
+      </div>
+    </div>
+    <div class="log-feed" id="flowLog"></div>
+  </div>
+</div>
+<template id="messageTemplate">
+  <div class="msg">
+    <span class="msg-who"></span>
+    <pre class="msg-text"></pre>
+  </div>
+</template>
+<script src="/app.js"></script>
+</body>
 </html>

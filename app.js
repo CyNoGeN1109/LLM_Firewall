@@ -1,276 +1,91 @@
-/* ── CynoShield — App Logic ── */
-const $ = (s) => document.querySelector(s);
-const messagesEl = $("#messages");
-const form = $("#chatForm");
-const input = $("#promptInput");
-const sendBtn = $("#sendButton");
-const stopBtn = $("#stopButton");
-const tmpl = $("#messageTemplate");
-const modelName = $("#modelName");
-const targetLabel = $("#targetLabel");
-const runtimeDot = $("#runtimeStatus");
-const runtimeLbl = $("#runtimeLabel");
-const modelSelect = $("#modelSelect");
-const fwToggle = $("#firewallToggle");
-const fwWrap = $("#firewallWrap");
-const fwLabel = $("#firewallLabel");
-const fwIndicator = $("#firewallIndicator");
-const settingsBtn = $("#settingsToggle");
-const settingsPanel = $("#settingsPanel");
-const decisionPanel = $("#decisionPanel");
-const sysPrompt = $("#systemPrompt");
-const tempSlider = $("#temperature");
-const tempValue = $("#temperatureValue");
-
-let conversation = [];
-let ctrl = null;
-let chatModel = "qwen3:1.7b";
-let fwModel = "qwen3:1.7b";
-
-const WELCOME = "Welcome to CynoShield. Toggle the firewall OFF to send prompts directly to Qwen, then turn it ON and try prompt-injection text to see the firewall block it.";
+/* cynoshield app.js */
+const $=s=>document.querySelector(s);
+const messagesEl=$('#messages'),form=$('#chatForm'),input=$('#promptInput'),sendBtn=$('#sendButton'),stopBtn=$('#stopButton'),tmpl=$('#messageTemplate');
+const fwToggle=$('#firewallToggle'),fwDot=$('#fwDot'),settingsBtn=$('#settingsToggle'),sysRow=$('#sysRow'),sysPrompt=$('#systemPrompt');
+const flowLog=$('#flowLog'),runtimeDot=$('#runtimeStatus'),runtimeLbl=$('#runtimeLabel'),pipeVerdict=$('#pipeVerdict');
+const pnIn=$('#pn-in'),pnFw=$('#pn-fw'),pnLlm=$('#pn-llm'),pnOut=$('#pn-out'),pa1=$('#pa-1'),pa2=$('#pa-2'),pa3=$('#pa-3');
+let conversation=[],ctrl=null,chatModel='qwen3:1.7b',fwModel='qwen3:1.7b';
+const TIMEOUT=90000;
+const TYPE_LABEL={send:'SEND',inspect:'SCAN',allow:'ALLOW',block:'BLOCK',stream:'STREAM',done:'DONE',info:'INFO'};
+const WELCOME=`cynoshield is running.\n\ntoggle the firewall OFF to send prompts straight to the model.\nturn it ON and try injections like "ignore all instructions" — watch the pipeline stop it.`;
 
 init();
+async function init(){addMsg('ai',WELCOME);bind();log('info','initializing…');await loadConfig();await checkHealth();}
 
-async function init() {
-  addMsg("assistant", WELCOME);
-  bind();
-  await loadConfig();
-  await checkHealth();
+function bind(){
+  form.addEventListener('submit',e=>{e.preventDefault();const t=input.value.trim();if(!t||ctrl)return;input.value='';autosize();send(t);});
+  input.addEventListener('input',autosize);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
+  stopBtn.addEventListener('click',()=>{if(ctrl){ctrl.abort();ctrl=null;setGen(false);log('info','stopped');}});
+  settingsBtn.addEventListener('click',()=>sysRow.classList.toggle('hidden'));
+  fwToggle.addEventListener('change',()=>{const on=fwToggle.checked;fwDot.className='fw-dot'+(on?' on':'');log(on?'allow':'block',on?'firewall enabled':'firewall disabled — direct passthrough');});
+  $('#newChat').addEventListener('click',()=>{conversation=[];messagesEl.innerHTML='';addMsg('ai',WELCOME);resetPipe();log('info','new session');input.focus();});
+  $('#exportChat').addEventListener('click',()=>{const txt=conversation.map(m=>`${m.role}: ${m.content}`).join('\n\n---\n\n');const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([txt||'(empty)'],{type:'text/plain'})),download:'cynoshield.txt'});a.click();URL.revokeObjectURL(a.href);log('info','exported');});
+  const cl=$('#clearLog');if(cl)cl.addEventListener('click',()=>{flowLog.innerHTML='';log('info','log cleared');});
 }
 
-function bind() {
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const t = input.value.trim();
-    if (!t || ctrl) return;
-    input.value = "";
-    resize();
-    send(t);
-  });
-  input.addEventListener("input", resize);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
-  });
-  stopBtn.addEventListener("click", () => { if (ctrl) { ctrl.abort(); ctrl = null; setGen(false); } });
-  settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
-  tempSlider.addEventListener("input", () => { tempValue.textContent = tempSlider.value; });
-  modelSelect.addEventListener("change", () => { chatModel = modelSelect.value; labels(); });
-  fwToggle.addEventListener("change", toggleFirewall);
-  $("#newChat").addEventListener("click", () => {
-    conversation = [];
-    messagesEl.innerHTML = "";
-    addMsg("assistant", WELCOME);
-    resetDecision();
-    input.focus();
-  });
-  $("#exportChat").addEventListener("click", exportChat);
+function log(type,msg){
+  const t=new Date().toTimeString().slice(3,8);
+  const el=document.createElement('div');el.className=`log-entry l-${type}`;
+  const lbl=TYPE_LABEL[type]||type.toUpperCase();
+  el.innerHTML=`<span class="log-t">${t}</span><span class="log-type">${esc(lbl)}</span><span class="log-m">${esc(msg)}</span>`;
+  flowLog.appendChild(el);flowLog.scrollTop=flowLog.scrollHeight;
 }
 
-function toggleFirewall() {
-  const on = fwToggle.checked;
-  fwWrap.classList.toggle("off", !on);
-  fwLabel.textContent = on ? "Firewall ON" : "Firewall OFF";
-  decisionPanel.className = "decision-card";
-  decisionPanel.querySelector("strong").textContent = on ? "Firewall Enabled" : "Firewall Disabled";
-  decisionPanel.querySelector("p").textContent = on
-    ? `${fwModel} will inspect prompts before they reach ${chatModel}.`
-    : "Prompts go directly to the target — no protection.";
-  labels();
-}
+function resetPipe(){[pnIn,pnFw,pnLlm,pnOut].forEach(n=>n.className='pnode');[pa1,pa2,pa3].forEach(a=>a.className='parr');pipeVerdict.className='pverdict hidden';pipeVerdict.textContent='';}
+function activateNode(n,a){[pnIn,pnFw,pnLlm,pnOut].forEach(x=>x.classList.remove('active'));n.classList.add('active');if(a)a.classList.add('active');}
+function doneNode(n){n.classList.remove('active');n.classList.add('done');}
+function blockNode(n,a){n.classList.remove('active');n.classList.add('blocked');if(a){a.classList.remove('active');a.classList.add('blocked');}}
+function showVerdict(ok,risk){pipeVerdict.textContent=ok?`✓ allowed (${risk})`:`✗ blocked (${risk})`;pipeVerdict.className=`pverdict ${ok?'allow':'block'}`;}
 
-async function loadConfig() {
-  try {
-    const r = await fetch("/api/config");
-    const c = await r.json();
-    chatModel = c.model;
-    fwModel = c.firewall_model;
-    labels();
-  } catch {}
-}
-
-async function checkHealth() {
-  try {
-    const r = await fetch("/api/health");
-    const h = await r.json();
-    fillModels(h.models || []);
-    if (h.ok && h.firewall_available) {
-      runtimeDot.className = "status-dot";
-      runtimeLbl.textContent = "Systems online";
-    } else if (h.ok) {
-      runtimeDot.className = "status-dot error";
-      runtimeLbl.textContent = `${fwModel} not found`;
-    } else {
-      runtimeDot.className = "status-dot error";
-      runtimeLbl.textContent = "Ollama offline";
-    }
-  } catch {
-    runtimeDot.className = "status-dot error";
-    runtimeLbl.textContent = "Connection failed";
-  }
-}
-
-function fillModels(models) {
-  const all = [...new Set([chatModel, ...models].filter(Boolean))];
-  modelSelect.innerHTML = "";
-  all.forEach((m) => {
-    const o = document.createElement("option");
-    o.value = m; o.textContent = m; o.selected = m === chatModel;
-    modelSelect.appendChild(o);
-  });
-}
-
-async function send(text) {
-  addMsg("user", text);
-  conversation.push({ role: "user", content: text });
-  const ast = addMsg("assistant", "", true);
-  ctrl = new AbortController();
-  setGen(true);
-
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model: chatModel,
-        firewall: fwToggle.checked,
-        messages: conversation,
-        system_prompt: sysPrompt.value,
-        temperature: tempSlider.value,
-      }),
-    });
-    if (!res.ok || !res.body) throw new Error("Request failed: " + res.status);
-
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "", full = "", blocked = false;
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const parts = buf.split("\n\n");
-      buf = parts.pop() || "";
-
-      for (const part of parts) {
-        const ev = parseSSE(part);
-        if (ev.type === "firewall") showDecision(ev.data);
-        if (ev.type === "blocked") {
-          blocked = true;
-          full = ev.data.message;
-          ast.node.classList.add("blocked");
-          ast.node.classList.remove("typing");
-          ast.content.textContent = "";
-          showAttackBanner(ev.data.message);
-          ast.content.textContent = full;
-          scroll();
-        }
-        if (ev.type === "token") {
-          full += ev.data.text;
-          ast.content.textContent = full;
-          scroll();
-        }
-        if (ev.type === "error") throw new Error(ev.data.message);
+async function send(text){
+  resetPipe();activateNode(pnIn,null);log('send',`→ "${truncate(text,55)}"`);
+  addMsg('user',text);conversation.push({role:'user',content:text});
+  const ast=addMsg('ai','',true);ctrl=new AbortController();let timedOut=false;
+  const tid=setTimeout(()=>{if(ctrl){timedOut=true;ctrl.abort();}},TIMEOUT);setGen(true);
+  setTimeout(()=>{doneNode(pnIn);if(fwToggle.checked){activateNode(pnFw,pa1);log('inspect','inspecting prompt…');}else{doneNode(pnFw);activateNode(pnLlm,pa2);log('stream',`sending to ${chatModel}…`);}},80);
+  try{
+    const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},signal:ctrl.signal,body:JSON.stringify({model:chatModel,firewall:fwToggle.checked,messages:conversation,system_prompt:sysPrompt.value,temperature:0.7})});
+    if(!res.ok||!res.body)throw new Error('http '+res.status);
+    const reader=res.body.getReader(),dec=new TextDecoder();let buf='',full='',blocked=false,first=true;
+    while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const parts=buf.split('\n\n');buf=parts.pop()??'';
+      for(const part of parts){const ev=parseSSE(part);
+        if(ev.type==='firewall'){const ok=Boolean(ev.data.allowed);showVerdict(ok,ev.data.risk);if(ok){doneNode(pnFw);activateNode(pnLlm,pa2);log('allow',`allowed — risk: ${ev.data.risk}`);log('stream',`→ ${chatModel}`);}else{log('block',`blocked — ${ev.data.attack_type}: ${ev.data.reason}`);}}
+        if(ev.type==='blocked'){blocked=true;blockNode(pnFw,pa2);ast.node.classList.add('is-blocked');ast.node.classList.remove('typing');const n=document.createElement('span');n.className='block-notice';n.textContent='↳ blocked: '+(ev.data.message||'injection detected');ast.node.appendChild(n);ast.text.textContent='—';scroll();}
+        if(ev.type==='token'){if(first){first=false;log('stream','streaming…');}full+=ev.data.text;ast.text.textContent=full;scroll();}
+        if(ev.type==='done'&&!blocked){doneNode(pnLlm);activateNode(pnOut,pa3);setTimeout(()=>doneNode(pnOut),800);log('done',`done — ${wordCount(full)} words`);}
+        if(ev.type==='error')throw new Error(ev.data.message);
       }
     }
-
-    ast.node.classList.remove("typing");
-    if (blocked) {
-      // Remove the blocked user prompt so it cannot poison later turns.
-      conversation.pop();
-    } else if (full.trim()) {
-      conversation.push({ role: "assistant", content: full });
-    } else {
-      ast.content.textContent = "No response.";
-    }
-  } catch (err) {
-    if (err.name !== "AbortError") {
-      ast.content.textContent = err.message || "Something went wrong.";
-      ast.node.classList.remove("typing");
-    }
-  } finally {
-    ctrl = null;
-    setGen(false);
-    input.focus();
-  }
+    ast.node.classList.remove('typing');
+    if(blocked){conversation.pop();}else if(full.trim()){conversation.push({role:'assistant',content:full});}else{ast.text.textContent='(no response)';}
+  }catch(err){
+    if(err.name==='AbortError'){ast.text.textContent=timedOut?'(timeout)':'(stopped)';if(timedOut){conversation.pop();log('block','timed out');}else log('info','stopped by user');}
+    else{ast.text.textContent='(error: '+err.message+')';log('block','error: '+err.message);}
+    ast.node.classList.remove('typing');resetPipe();
+  }finally{clearTimeout(tid);ctrl=null;setGen(false);input.focus();}
 }
 
-function addMsg(role, text, typing = false) {
-  const frag = tmpl.content.cloneNode(true);
-  const node = frag.querySelector(".msg");
-  const avatar = frag.querySelector(".msg-avatar");
-  const meta = frag.querySelector(".msg-meta");
-  const content = frag.querySelector(".msg-content");
-  node.classList.add(role);
-  if (typing) node.classList.add("typing");
-  avatar.textContent = role === "user" ? "YOU" : "AI";
-  meta.textContent = role === "user" ? "You" : "CynoShield";
-  content.textContent = text;
-  messagesEl.appendChild(frag);
-  scroll();
-  return { node: messagesEl.lastElementChild, content: messagesEl.lastElementChild.querySelector(".msg-content") };
+function addMsg(role,text,typing=false){
+  const frag=tmpl.content.cloneNode(true),node=frag.querySelector('.msg'),who=frag.querySelector('.msg-who'),pre=frag.querySelector('.msg-text');
+  node.classList.add(role==='user'?'is-user':'is-ai');if(typing)node.classList.add('typing');
+  who.textContent=role;pre.textContent=text;messagesEl.appendChild(frag);scroll();
+  const last=messagesEl.lastElementChild;return{node:last,text:last.querySelector('.msg-text')};
 }
+function parseSSE(raw){const type=raw.match(/^event:\s*(.+)$/m)?.[1]??'message';const data=raw.match(/^data:\s*(.+)$/m)?.[1]??'{}';try{return{type,data:JSON.parse(data)};}catch{return{type,data:{}};}}
+function autosize(){input.style.height='auto';input.style.height=Math.min(input.scrollHeight,120)+'px';}
+function setGen(g){sendBtn.classList.toggle('hidden',g);stopBtn.classList.toggle('hidden',!g);input.disabled=g;}
+function scroll(){messagesEl.scrollTop=messagesEl.scrollHeight;}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function truncate(s,n){return s.length>n?s.slice(0,n)+'…':s;}
+function wordCount(s){return s.trim().split(/\s+/).filter(Boolean).length;}
 
-function showAttackBanner(msg) {
-  const banner = document.createElement("div");
-  banner.className = "attack-banner";
-  banner.innerHTML = `<svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>🛡️ ATTACK BLOCKED — ${msg}</span>`;
-  messagesEl.appendChild(banner);
-  scroll();
-  setTimeout(() => banner.remove(), 8000);
-}
-
-function showDecision(d) {
-  const ok = Boolean(d.allowed);
-  decisionPanel.className = `decision-card ${ok ? "allow" : "block"}`;
-  decisionPanel.querySelector("strong").textContent = ok
-    ? `✓ ALLOWED — ${d.risk} risk`
-    : `✕ BLOCKED — ${d.risk} risk`;
-  decisionPanel.querySelector("p").textContent = `[${d.attack_type}] ${d.reason}`;
-}
-
-function resetDecision() {
-  decisionPanel.className = "decision-card";
-  decisionPanel.querySelector("strong").textContent = "Firewall Decision";
-  decisionPanel.querySelector("p").textContent = "Awaiting first prompt…";
-}
-
-function parseSSE(text) {
-  const type = text.match(/^event:\s*(.+)$/m)?.[1] || "message";
-  const data = text.match(/^data:\s*(.+)$/m)?.[1] || "{}";
-  try { return { type, data: JSON.parse(data) }; }
-  catch { return { type, data: {} }; }
-}
-
-function resize() {
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 160) + "px";
-}
-
-function setGen(g) {
-  sendBtn.classList.toggle("hidden", g);
-  stopBtn.classList.toggle("hidden", !g);
-  input.disabled = g;
-}
-
-function scroll() { messagesEl.scrollTop = messagesEl.scrollHeight; }
-
-function labels() {
-  modelName.textContent = "CynoShield";
-  targetLabel.textContent = fwToggle.checked
-    ? `${chatModel} ← protected by ${fwModel}`
-    : `${chatModel} ← NO FIREWALL`;
-  input.placeholder = fwToggle.checked
-    ? "Try a prompt injection — the firewall will catch it"
-    : "Firewall OFF — try 'ignore all instructions' to see it work";
-}
-
-function exportChat() {
-  const lines = conversation.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
-  const blob = new Blob([lines || "Empty session."], { type: "text/plain" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "cynoshield-chat.txt";
-  a.click();
-  URL.revokeObjectURL(a.href);
+async function loadConfig(){try{const c=await fetch('/api/config').then(r=>r.json());chatModel=c.default_model||c.model||chatModel;fwModel=c.firewall_model||fwModel;log('info',`config: model=${chatModel} fw=${fwModel}`);}catch{log('info','no /api/config endpoint');}}
+async function checkHealth(){
+  log('info','checking ollama…');
+  try{const h=await fetch('/api/health').then(r=>r.json());
+    if(h.ok&&h.firewall_available){runtimeDot.className='rdot online';runtimeLbl.textContent='online';log('allow','ollama online');}
+    else if(h.ok){runtimeDot.className='rdot error';runtimeLbl.textContent='fw missing';log('block',`${fwModel} not loaded`);}
+    else{runtimeDot.className='rdot error';runtimeLbl.textContent='offline';log('block','ollama not reachable');}
+  }catch{runtimeDot.className='rdot error';runtimeLbl.textContent='error';log('block','connection failed — is ollama running?');}
 }
