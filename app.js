@@ -50,7 +50,7 @@ async function send(text){
     const reader=res.body.getReader(),dec=new TextDecoder();let buf='',full='',blocked=false,first=true;
     while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const parts=buf.split('\n\n');buf=parts.pop()??'';
       for(const part of parts){const ev=parseSSE(part);
-        if(ev.type==='firewall'){const ok=Boolean(ev.data.allowed);showVerdict(ok,ev.data.risk);if(ok){doneNode(pnFw);activateNode(pnLlm,pa2);log('allow',`allowed — risk: ${ev.data.risk}`);log('stream',`→ ${chatModel}`);}else{log('block',`blocked — ${ev.data.attack_type}: ${ev.data.reason}`);}}
+        if(ev.type==='firewall'){const ok=Boolean(ev.data.allowed);showVerdict(ok,ev.data.risk);const at=ev.data.layer?` [${ev.data.layer}]`:'';if(ok){doneNode(pnFw);activateNode(pnLlm,pa2);log('allow',`allowed${at} — risk: ${ev.data.risk}`);log('stream',`→ ${chatModel}`);}else{log('block',`blocked${at} — ${ev.data.attack_type}: ${ev.data.reason}`);}}
         if(ev.type==='blocked'){blocked=true;blockNode(pnFw,pa2);ast.node.classList.add('is-blocked');ast.node.classList.remove('typing');const n=document.createElement('span');n.className='block-notice';n.textContent='↳ blocked: '+(ev.data.message||'injection detected');ast.node.appendChild(n);ast.text.textContent='—';scroll();}
         if(ev.type==='token'){if(first){first=false;log('stream','streaming…');}full+=ev.data.text;ast.text.textContent=full;scroll();}
         if(ev.type==='done'&&!blocked){doneNode(pnLlm);activateNode(pnOut,pa3);setTimeout(()=>doneNode(pnOut),800);log('done',`done — ${wordCount(full)} words`);}

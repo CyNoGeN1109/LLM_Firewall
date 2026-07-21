@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
+.env
+.venv/
+venv/
 tempCodeRunnerFile.py
+.pytest_cache/
+.DS_Store
